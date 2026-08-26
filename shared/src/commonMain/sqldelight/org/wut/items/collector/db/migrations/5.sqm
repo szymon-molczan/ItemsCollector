@@ -1,0 +1,1 @@
+ALTER TABLE collections ADD COLUMN bannerAlignment REAL NOT NULL DEFAULT 0.5;

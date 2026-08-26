@@ -1,0 +1,130 @@
+-- Galeria zdjec dla itemow (KROK 5b).
+--
+-- Relacja 1:N: jeden item -> wiele zdjec.
+-- Dokladnie jedno zdjecie per item ma isPrimary=1 - wyswietlane jako miniatura
+-- na liscie kolekcji oraz w PDF/eksporcie. Reszta to dodatkowe ujecia (np.
+-- awers/rewers monety).
+--
+-- Offline-first sync: kazde zdjecie ma swoj cykl zycia jak item (isDirty/isDeleted,
+-- pendingImagePath -> upload na serwer -> imageUrl).
+--
+-- Stara kolumna items.imageUrl pozostaje dla kompatybilnosci wstecznej -
+-- jednorazowa migracja danych przy pierwszym starcie aplikacji v2 przeniesie
+-- wszystkie istniejace items.imageUrl do item_images jako wpis isPrimary=1.
+
+CREATE TABLE item_images (
+    id TEXT NOT NULL PRIMARY KEY,
+    itemId TEXT NOT NULL,
+    -- URL serwerowy (po uploadzie) - moze byc null dopoki zdjecie jest w pendingImagePath
+    imageUrl TEXT,
+    -- Lokalna sciezka w cache (oczekujaca na upload). Po sukcesie uploadu
+    -- zostaje zachowana jako lokalny cache (dziala bez sieci, niezaleznie
+    -- od dostepnosci serwera w sieci LAN - np. 10.0.2.2 nie dziala na fizycznym tel).
+    pendingImagePath TEXT,
+    isPrimary INTEGER NOT NULL DEFAULT 0,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    isDirty INTEGER NOT NULL DEFAULT 1,
+    isDeleted INTEGER NOT NULL DEFAULT 0
+);
+
+-- Index dla szybkiego pobrania zdjec danego itemu (oraz primary).
+CREATE INDEX item_images_itemId_idx ON item_images(itemId);
+
+-- Selecty
+
+selectByItem:
+SELECT * FROM item_images
+WHERE itemId = :itemId AND isDeleted = 0
+ORDER BY isPrimary DESC, sortOrder ASC, createdAt ASC;
+
+selectPrimaryByItem:
+SELECT * FROM item_images
+WHERE itemId = :itemId AND isDeleted = 0 AND isPrimary = 1
+LIMIT 1;
+
+selectById:
+SELECT * FROM item_images WHERE id = :id;
+
+selectAllDirty:
+SELECT * FROM item_images WHERE isDirty = 1;
+
+-- Wszystkie pendingImagePath - do cleanupu osieroconych plikow w cache.
+selectAllPendingImagePaths:
+SELECT pendingImagePath FROM item_images WHERE pendingImagePath IS NOT NULL;
+
+-- Mapa itemId -> primary imageUrl/pendingImagePath - reaktywne miniatury na liscie.
+-- Nie filtrujemy po isDeleted bo ekran kolekcji dostaje tylko aktywne itemy
+-- (item.isDeleted=0), a zdjecia kasowanego itemu i tak nigdy nie sa juz uzywane.
+selectPrimaryUrlsForCollection:
+SELECT ii.itemId AS itemId, ii.imageUrl AS imageUrl, ii.pendingImagePath AS pendingImagePath
+FROM item_images ii
+INNER JOIN items i ON i.id = ii.itemId
+WHERE i.collectionId = :collectionId
+  AND i.isDeleted = 0
+  AND ii.isDeleted = 0
+  AND ii.isPrimary = 1;
+
+-- Insert / update (idempotentny upsert per id).
+upsert:
+INSERT OR REPLACE INTO item_images(
+    id, itemId, imageUrl, pendingImagePath, isPrimary, sortOrder,
+    createdAt, updatedAt, isDirty, isDeleted
+) VALUES (
+    :id, :itemId, :imageUrl, :pendingImagePath, :isPrimary, :sortOrder,
+    :createdAt, :updatedAt, :isDirty, :isDeleted
+);
+
+-- Soft-delete (do nastepnego sync).
+markDeleted:
+UPDATE item_images SET isDeleted = 1, isDirty = 1, updatedAt = :now WHERE id = :id;
+
+-- Hard-delete (po udanym sync).
+deleteHard:
+DELETE FROM item_images WHERE id = :id;
+
+-- Gdy usuwamy item - kasujemy tez wszystkie jego zdjecia lokalnie (sync je usunie z serwera).
+deleteByItem:
+DELETE FROM item_images WHERE itemId = :itemId;
+
+-- Po udanym uploadzie ustawiamy URL z serwera.
+setUploadedImageUrl:
+UPDATE item_images SET imageUrl = :imageUrl WHERE id = :id;
+
+markClean:
+UPDATE item_images SET isDirty = 0 WHERE id = :id;
+
+-- Ustaw inne zdjecia tego itemu jako NIE-primary (przed nadaniem nowemu).
+-- Robimy w 2 zapytaniach (clear + set) zamiast CASE bo czytelniej i mamy kontrole transakcji.
+clearPrimaryForItem:
+UPDATE item_images SET isPrimary = 0, isDirty = 1, updatedAt = :now
+WHERE itemId = :itemId AND isPrimary = 1;
+
+-- Ustaw konkretne zdjecie jako primary.
+setPrimary:
+UPDATE item_images SET isPrimary = 1, isDirty = 1, updatedAt = :now WHERE id = :id;
+
+-- Ile aktywnych zdjec ma item (do UI - pokazujemy 'X zdjec').
+countByItem:
+SELECT COUNT(*) FROM item_images WHERE itemId = :itemId AND isDeleted = 0;
+
+-- Pelna lista (do testow / migracji).
+selectAll:
+SELECT * FROM item_images;
+
+-- Kasuje czyste (niedirty, niedeleted) zdjecia danego itemu, ktorych id NIE
+-- jest w liscie z serwera. Uzywane w pullAll() do propagacji usuniec z innych
+-- urzadzen.
+deleteCleanNotIn:
+DELETE FROM item_images
+WHERE itemId = :itemId
+  AND isDirty = 0
+  AND isDeleted = 0
+  AND id NOT IN :ids;
+
+-- Czy juz wykonano migracje 'imageUrl -> item_images' (one-shot przy starcie v2).
+-- Wartosc kontrolna trzymamy w tabeli session (KROK 5b uzywa flagi 'images_migrated_v2'),
+-- wiec tu zapytanie do _wszystkich_ zdjec danego itemu (jesli jest >=1, item byl juz migrowany).
+existsAnyForItem:
+SELECT COUNT(*) > 0 FROM item_images WHERE itemId = :itemId;

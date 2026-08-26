@@ -1,0 +1,24 @@
+-- Migracja v1 -> v2: dodaje tabele item_images dla galerii zdjec (KROK 5b).
+--
+-- Sama migracja jest "additive" - tylko CREATE TABLE i CREATE INDEX,
+-- istniejace dane sa zachowane bez zmian.
+--
+-- Migracja DANYCH (przeniesienie items.imageUrl do item_images jako isPrimary=1)
+-- jest wykonywana w kodzie aplikacji przy starcie - w klasie ImageMigrationRunner
+-- (commonMain). Powod: potrzebujemy generowac UUID-y dla nowych wpisow item_images,
+-- a SQLDelight migracje nie maja dostepu do kotlinowych funkcji.
+
+CREATE TABLE item_images (
+    id TEXT NOT NULL PRIMARY KEY,
+    itemId TEXT NOT NULL,
+    imageUrl TEXT,
+    pendingImagePath TEXT,
+    isPrimary INTEGER NOT NULL DEFAULT 0,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    isDirty INTEGER NOT NULL DEFAULT 1,
+    isDeleted INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX item_images_itemId_idx ON item_images(itemId);

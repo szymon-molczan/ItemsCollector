@@ -1,0 +1,1 @@
+W repozytorium znajduje się kod źródłowy do pracy dyplomowej inżynierskiej "Projekt i implementacja wieloplatformowej aplikacji do zarządzania kolekcjami przedmiotów" autorstwa Szymona Mołczana.

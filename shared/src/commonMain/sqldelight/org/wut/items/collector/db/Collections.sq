@@ -1,0 +1,49 @@
+CREATE TABLE collections (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    schemaJson TEXT NOT NULL DEFAULT '[]',
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    -- 1 = nigdy nie zsynchronizowano lub czeka na wyslanie
+    isDirty INTEGER NOT NULL DEFAULT 0,
+    -- 1 = oznaczone do skasowania, 0 = aktywne
+    isDeleted INTEGER NOT NULL DEFAULT 0,
+    bannerImageUrl TEXT,
+    bannerAlignment REAL NOT NULL DEFAULT 0.5,
+    pendingBannerPath TEXT
+);
+
+selectAll:
+SELECT * FROM collections WHERE isDeleted = 0 ORDER BY updatedAt DESC;
+
+selectById:
+SELECT * FROM collections WHERE id = :id;
+
+selectAllIncludingDirty:
+SELECT * FROM collections;
+
+upsert:
+INSERT OR REPLACE INTO collections(id, name, description, schemaJson, createdAt, updatedAt, isDirty, isDeleted, bannerImageUrl, bannerAlignment, pendingBannerPath)
+VALUES (:id, :name, :description, :schemaJson, :createdAt, :updatedAt, :isDirty, :isDeleted, :bannerImageUrl, :bannerAlignment, :pendingBannerPath);
+
+markClean:
+UPDATE collections SET isDirty = 0, pendingBannerPath = NULL WHERE id = :id;
+
+markDeleted:
+UPDATE collections SET isDeleted = 1, isDirty = 1, updatedAt = :now WHERE id = :id;
+
+deleteHard:
+DELETE FROM collections WHERE id = :id;
+
+-- Kasuje lokalne czyste (niedirty, niedeleted) kolekcje ktorych id NIE ma na liscie z serwera.
+-- Uzywane w pullAll() do usuwania kolekcji skasowanych z innego urzadzenia.
+deleteCleanNotIn:
+DELETE FROM collections
+WHERE isDirty = 0
+  AND isDeleted = 0
+  AND id NOT IN :ids;
+
+-- Wszystkie pendingBannerPath - do cleanupu osieroconych plikow w cache.
+selectAllPendingBannerPaths:
+SELECT pendingBannerPath FROM collections WHERE pendingBannerPath IS NOT NULL;

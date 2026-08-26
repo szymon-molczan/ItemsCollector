@@ -1,0 +1,63 @@
+CREATE TABLE items (
+    id TEXT NOT NULL PRIMARY KEY,
+    collectionId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    imageUrl TEXT,
+    -- lokalna sciezka do obrazu (oczekujacego na upload)
+    pendingImagePath TEXT,
+    attributesJson TEXT NOT NULL DEFAULT '[]',
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    isDirty INTEGER NOT NULL DEFAULT 0,
+    isDeleted INTEGER NOT NULL DEFAULT 0,
+    isFavorite INTEGER NOT NULL DEFAULT 0
+);
+
+selectByCollection:
+SELECT * FROM items WHERE collectionId = :collectionId AND isDeleted = 0 ORDER BY updatedAt DESC;
+
+selectById:
+SELECT * FROM items WHERE id = :id;
+
+selectAllDirty:
+SELECT * FROM items WHERE isDirty = 1;
+
+upsert:
+INSERT OR REPLACE INTO items(id, collectionId, name, description, imageUrl, pendingImagePath, attributesJson, createdAt, updatedAt, isDirty, isDeleted, isFavorite)
+VALUES (:id, :collectionId, :name, :description, :imageUrl, :pendingImagePath, :attributesJson, :createdAt, :updatedAt, :isDirty, :isDeleted, :isFavorite);
+
+toggleFavorite:
+UPDATE items SET isFavorite = 1 - isFavorite, isDirty = 1, updatedAt = :now WHERE id = :id;
+
+markClean:
+UPDATE items SET isDirty = 0, pendingImagePath = NULL WHERE id = :id;
+
+setImageUrl:
+UPDATE items SET imageUrl = :imageUrl, pendingImagePath = NULL WHERE id = :id;
+
+markDeleted:
+UPDATE items SET isDeleted = 1, isDirty = 1, updatedAt = :now WHERE id = :id;
+
+deleteHard:
+DELETE FROM items WHERE id = :id;
+
+deleteByCollection:
+DELETE FROM items WHERE collectionId = :collectionId;
+
+-- Kasuje czyste (niedirty, niedeleted) items danej kolekcji ktorych id NIE jest w liscie z serwera.
+deleteCleanNotIn:
+DELETE FROM items
+WHERE collectionId = :collectionId
+  AND isDirty = 0
+  AND isDeleted = 0
+  AND id NOT IN :ids;
+
+-- Wszystkie niepuste pendingImagePath - do cleanupu osieroconych plikow w cache.
+selectAllPendingImagePaths:
+SELECT pendingImagePath FROM items WHERE pendingImagePath IS NOT NULL;
+
+-- Liczba aktywnych (niedeleted) itemow per kolekcja - do statystyk na liscie.
+-- Jedno zapytanie zamiast N zapytan per kolekcja - efektywne nawet przy 50+ kolekcjach.
+countByCollectionGrouped:
+SELECT collectionId, COUNT(*) AS cnt FROM items WHERE isDeleted = 0 GROUP BY collectionId;

@@ -1,0 +1,2 @@
+-- Migracja v3: dodaje kolumne isFavorite do tabeli items.
+ALTER TABLE items ADD COLUMN isFavorite INTEGER NOT NULL DEFAULT 0;

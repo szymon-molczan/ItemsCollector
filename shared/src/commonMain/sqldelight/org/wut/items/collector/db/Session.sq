@@ -1,0 +1,18 @@
+CREATE TABLE session (
+    id INTEGER NOT NULL PRIMARY KEY DEFAULT 1,
+    token TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    email TEXT NOT NULL,
+    displayName TEXT NOT NULL,
+    serverUrl TEXT NOT NULL
+);
+
+current:
+SELECT * FROM session WHERE id = 1;
+
+save:
+INSERT OR REPLACE INTO session(id, token, userId, email, displayName, serverUrl)
+VALUES (1, :token, :userId, :email, :displayName, :serverUrl);
+
+clear:
+DELETE FROM session;
