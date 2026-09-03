@@ -10,6 +10,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import org.wut.items.collector.db.AppDatabase
 import org.wut.items.collector.model.AttributeDef
+import org.wut.items.collector.model.AttributeValue
 import org.wut.items.collector.model.CollectionDto
 import org.wut.items.collector.util.currentTimeMillis
 import org.wut.items.collector.util.newUuid
@@ -22,6 +23,7 @@ import org.wut.items.collector.util.newUuid
 class CollectionRepository(private val db: AppDatabase) {
 
     private val attrSerializer = ListSerializer(AttributeDef.serializer())
+    private val itemAttrSerializer = ListSerializer(AttributeValue.serializer())
     private val json = Json { ignoreUnknownKeys = true }
 
     fun observeAll(): Flow<List<CollectionDto>> =
@@ -61,6 +63,9 @@ class CollectionRepository(private val db: AppDatabase) {
     fun update(id: String, name: String, description: String, schema: List<AttributeDef>, bannerImageUrl: String? = null, bannerAlignment: Float = 0.5f, pendingBannerPath: String? = null) {
         val existing = db.collectionsQueries.selectById(id).executeAsOneOrNull() ?: return
         val now = nowMs()
+        val previousSchema = if (existing.schemaJson.isBlank()) emptyList()
+        else json.decodeFromString(attrSerializer, existing.schemaJson)
+        val removedAttributeKeys = previousSchema.map { it.key }.toSet() - schema.map { it.key }.toSet()
         
         
         
@@ -71,19 +76,25 @@ class CollectionRepository(private val db: AppDatabase) {
             pendingBannerPath ?: existing.pendingBannerPath
         }
 
-        db.collectionsQueries.upsert(
-            id = id,
-            name = name,
-            description = description,
-            schemaJson = json.encodeToString(attrSerializer, schema),
-            createdAt = existing.createdAt,
-            updatedAt = now,
-            isDirty = 1L,
-            isDeleted = 0L,
-            bannerImageUrl = bannerImageUrl,
-            bannerAlignment = bannerAlignment.toDouble(),
-            pendingBannerPath = finalPending
-        )
+        db.collectionsQueries.transaction {
+            db.collectionsQueries.upsert(
+                id = id,
+                name = name,
+                description = description,
+                schemaJson = json.encodeToString(attrSerializer, schema),
+                createdAt = existing.createdAt,
+                updatedAt = now,
+                isDirty = 1L,
+                isDeleted = 0L,
+                bannerImageUrl = bannerImageUrl,
+                bannerAlignment = bannerAlignment.toDouble(),
+                pendingBannerPath = finalPending
+            )
+
+            if (removedAttributeKeys.isNotEmpty()) {
+                removeDeletedAttributeValues(id, removedAttributeKeys, now)
+            }
+        }
     }
 
     fun delete(id: String) {
@@ -146,6 +157,33 @@ class CollectionRepository(private val db: AppDatabase) {
         db.collectionsQueries.selectAllPendingBannerPaths()
             .executeAsList()
             .mapNotNull { it }
+
+    private fun removeDeletedAttributeValues(collectionId: String, removedKeys: Set<String>, now: Long) {
+        db.itemsQueries.selectByCollection(collectionId)
+            .executeAsList()
+            .forEach { item ->
+                val attributes = if (item.attributesJson.isBlank()) emptyList()
+                else json.decodeFromString(itemAttrSerializer, item.attributesJson)
+                val remainingAttributes = attributes.filterNot { it.key in removedKeys }
+
+                if (remainingAttributes.size == attributes.size) return@forEach
+
+                db.itemsQueries.upsert(
+                    id = item.id,
+                    collectionId = item.collectionId,
+                    name = item.name,
+                    description = item.description,
+                    imageUrl = item.imageUrl,
+                    pendingImagePath = item.pendingImagePath,
+                    attributesJson = json.encodeToString(itemAttrSerializer, remainingAttributes),
+                    createdAt = item.createdAt,
+                    updatedAt = now,
+                    isDirty = 1L,
+                    isDeleted = item.isDeleted,
+                    isFavorite = item.isFavorite
+                )
+            }
+    }
 
     private fun org.wut.items.collector.db.Collections.toDto(): CollectionDto {
         val schema = if (schemaJson.isBlank()) emptyList()

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -42,6 +43,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,7 +66,7 @@ import kotlinx.coroutines.launch
 import org.wut.items.collector.media.MediaPicker
 import org.wut.items.collector.model.AttributeDef
 import org.wut.items.collector.model.AttributeType
-import org.wut.items.collector.util.currentTimeMillis
+import org.wut.items.collector.util.newUuid
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
 
@@ -104,6 +106,8 @@ fun CollectionEditScreen(
     val scope = rememberCoroutineScope()
     var editingBannerPath by remember { mutableStateOf<String?>(null) }
     var bannerAspect by remember { mutableStateOf(1f) }
+    var originalSchema by remember { mutableStateOf<List<AttributeDef>>(emptyList()) }
+    var confirmSchemaSave by remember { mutableStateOf(false) }
 
     LaunchedEffect(vm.uiEvent) {
         vm.uiEvent.collect { event ->
@@ -122,8 +126,18 @@ fun CollectionEditScreen(
                 pendingBannerPath = it.pendingBannerPath
                 schema.clear()
                 schema.addAll(it.schema)
+                originalSchema = it.schema
             }
         }
+    }
+
+    fun saveCollection() {
+        if (collectionId == null) {
+            vm.createCollection(name.trim(), description.trim(), schema.toList(), bannerImageUrl, bannerAlignment, pendingBannerPath)
+        } else {
+            vm.updateCollection(collectionId, name.trim(), description.trim(), schema.toList(), bannerImageUrl, bannerAlignment, pendingBannerPath)
+        }
+        onClose()
     }
 
     
@@ -139,6 +153,35 @@ fun CollectionEditScreen(
             cropAspectRatio = bannerAspect
         )
         return
+    }
+
+    val schemaKeys = schema.map { it.key }.toSet()
+    val removedFields = originalSchema.filter { it.key !in schemaKeys }
+    if (confirmSchemaSave) {
+        AlertDialog(
+            onDismissRequest = { confirmSchemaSave = false },
+            title = { Text("Zapisać zmiany struktury?") },
+            text = {
+                Text(
+                    "Usunięcie pól ${removedFields.joinToString { it.label.ifBlank { "bez nazwy" } }} trwale usunie ich wartości z aktywnych przedmiotów tej kolekcji."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmSchemaSave = false
+                        saveCollection()
+                    }
+                ) {
+                    Text("Zapisz zmiany")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSchemaSave = false }) {
+                    Text("Anuluj")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -309,7 +352,13 @@ fun CollectionEditScreen(
             }
             OutlinedButton(
                 onClick = {
-                    schema.add(AttributeDef(key = "field${schema.size + 1}", label = "Nowe pole", type = AttributeType.TEXT))
+                    schema.add(
+                        AttributeDef(
+                            key = "field_${newUuid()}",
+                            label = "Nowe pole",
+                            type = AttributeType.TEXT
+                        )
+                    )
                 },
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
             ) {
@@ -320,12 +369,11 @@ fun CollectionEditScreen(
             Button(
                 onClick = {
                     if (name.isNotBlank()) {
-                        if (collectionId == null) {
-                            vm.createCollection(name.trim(), description.trim(), schema.toList(), bannerImageUrl, bannerAlignment, pendingBannerPath)
+                        if (collectionId != null && removedFields.isNotEmpty()) {
+                            confirmSchemaSave = true
                         } else {
-                            vm.updateCollection(collectionId, name.trim(), description.trim(), schema.toList(), bannerImageUrl, bannerAlignment, pendingBannerPath)
+                            saveCollection()
                         }
-                        onClose()
                     }
                 },
                 enabled = name.isNotBlank(),
@@ -353,7 +401,7 @@ private fun AttributeDefRow(
                 OutlinedTextField(
                     value = def.label,
                     onValueChange = {
-                        onChange(def.copy(label = it, key = it.lowercase().replace(" ", "_").take(40).ifBlank { def.key }))
+                        onChange(def.copy(label = it))
                     },
                     label = { Text("Nazwa pola") },
                     modifier = Modifier.weight(1f),
