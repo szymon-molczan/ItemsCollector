@@ -56,7 +56,6 @@ import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -71,12 +70,15 @@ import androidx.compose.material3.Slider
 
 @Composable
 private fun premiumTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = Color(0xFF222227),
-    unfocusedContainerColor = Color(0xFF222227),
-    disabledContainerColor = Color(0xFF222227),
+    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+    disabledTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    focusedContainerColor = MaterialTheme.colorScheme.surface,
+    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
     focusedBorderColor = MaterialTheme.colorScheme.primary,
-    unfocusedBorderColor = Color.Transparent,
-    disabledBorderColor = Color.Transparent,
+    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+    disabledBorderColor = MaterialTheme.colorScheme.outline,
     cursorColor = MaterialTheme.colorScheme.primary,
     focusedLabelColor = MaterialTheme.colorScheme.primary,
     unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
